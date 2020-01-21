@@ -215,7 +215,8 @@ To generate the minimum spanning tree for a graph, used
 (mst-kruskal graph)
 #+end_src
 
-where =GRAPH= is any given graph object.
+where =GRAPH= is any given /undirected graph/ object -- this algorithm is
+not appropriate for digraphs.
 
 This function returns /two values/: one is a new graph object, which
 describes the tree itself (trees are a special graph case). The other
@@ -226,30 +227,32 @@ Below we show the full output of the MST for our previously defined
 graph.
 
 #+begin_src lisp :exports both :cache yes
-(mst-kruskal *my-digraph*)
+(mst-kruskal *my-graph*)
 #+end_src
 
-#+RESULTS[e79a5a135823a93c8bade5b5e55886c882e15116]:
+#+RESULTS[d31c4529b5ce04bdb06245afa3b99c0a2ed19e08]:
 #+begin_example
 #<graph G = (V, E) where
-    V = (A B C D E F G H)
+    V = (A B C D E F G H I)
     E =
-      (G H) [dist=2]
-      (E F) [dist=2]
-      (B E) [dist=2]
-      (A D) [dist=2]
-      (H F) [dist=1]
-      (F C) [dist=1]
-      (D G) [dist=1]
-      (H G) [dist=2]
-      (F E) [dist=2]
-      (E B) [dist=2]
-      (D A) [dist=2]
-      (F H) [dist=1]
-      (C F) [dist=1]
-      (G D) [dist=1]>
+      (D E) [dist=9]
+      (A H) [dist=8]
+      (C D) [dist=7]
+      (C F) [dist=4]
+      (A B) [dist=4]
+      (F G) [dist=2]
+      (C I) [dist=2]
+      (G H) [dist=1]
+      (E D) [dist=9]
+      (H A) [dist=8]
+      (D C) [dist=7]
+      (F C) [dist=4]
+      (B A) [dist=4]
+      (G F) [dist=2]
+      (I C) [dist=2]
+      (H G) [dist=1]>
 
-((G H) (E F) (B E) (A D) (H F) (F C) (D G))
+((D E) (A H) (C D) (C F) (A B) (F G) (C I) (G H))
 #+end_example
 
 ** Emitting Graphviz code
@@ -451,12 +454,12 @@ and then shows it.
 Therefore the code
 
 #+begin_src lisp :eval no
-(show-graph-with-mst-kruskal *my-digraph*)
+(show-graph-with-mst-kruskal *my-graph*)
 #+end_src
 
 shows on screen the image
 
-[[file:img/my-digraph-mst.png]]
+[[file:img/my-graph-mst.png]]
 
 * License
 
