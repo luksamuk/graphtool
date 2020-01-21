@@ -1,7 +1,7 @@
 ;;;; graph.lisp
 ;;;; Part of Graphtool project.
 ;;;;
-;;;; Copyright (c) 2019, Lucas S. Vieira.
+;;;; Copyright (c) 2019-2020, Lucas S. Vieira.
 ;;;; This code is licensed under the BSD 2-Clause
 ;;;; "Simplified" License. See the "LICENSE" file
 ;;;; for more details.
