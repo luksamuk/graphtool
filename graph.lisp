@@ -24,6 +24,16 @@
                :initarg :digraph
                :accessor digraph-p)))
 
+(defparameter *interaction-mode* 'image)
+(defparameter *xdot-process* nil)
+
+(defun set-interaction-mode (mode)
+  (unless (or (eq mode 'image)
+              (eq mode 'xdot))
+    (error "Interaction modes can only be ~S or ~S."
+           'image 'xdot))
+  (setf *interaction-mode* mode))
+
 (defmethod print-object ((obj graph) stream)
   (format stream
           (concatenate
@@ -47,7 +57,7 @@
                      collect (list b a dist)))))
   ;; Validation
   (let ((distances (make-hash-table :test 'equal))
-        (neighbors (make-hash-table)))
+        (neighbors (make-hash-table :test 'equal)))
     (loop for edge in edges
        do (loop for vertex in (butlast edge)
              unless (member vertex vertices)
@@ -65,17 +75,23 @@
                    :nhood neighbors
                    :digraph digraph-p)))
 
-(defmethod emit-dot ((graph graph) &optional (highlight-path nil))
+(defmethod emit-dot ((graph graph)
+                     &optional (highlight-path nil)
+                               (highlighting-edges nil))
   "Emit Graphviz code for drawing the given GRAPH."
   (let ((sep      (if (digraph-p graph) "->" "--"))
-        (highlit  (loop for (a b) on highlight-path
-                     unless (or (null b)
-                                (digraph-p graph))
-                     collect (list b a)
-                     unless (null b)
-                     collect (list a b)))
-        (fst-node (first highlight-path))
-        (lst-node (first (last highlight-path))))
+        (highlit (if highlighting-edges
+                     highlight-path
+                     (loop for (a b) on highlight-path
+                        unless (or (null b)
+                                   (digraph-p graph))
+                        collect (list b a)
+                        unless (null b)
+                        collect (list a b))))
+        (fst-node (and (not highlighting-edges)
+                       (first highlight-path)))
+        (lst-node (and (not highlighting-edges)
+                       (first (last highlight-path)))))
     (princ (if (digraph-p graph) "digraph" "graph"))
     (princ #\Space)
     (princ "G {")
@@ -116,33 +132,56 @@
     (princ "}")
     (terpri)))
 
-(defmethod show-graph ((graph graph) &optional (highlight-path nil))
+(defmethod show-graph ((graph graph)
+                       &optional (highlight-path nil)
+                         (highlighting-edges nil))
   "Show graph on screen. Translates the graph structure to Graphviz,
 then generates a PNG image which can be opened by feh."
   (let ((dot-text
          (with-output-to-string (s)
            (let ((*standard-output* s))
-             (emit-dot graph highlight-path)))))
+             (emit-dot graph highlight-path highlighting-edges)))))
     (with-open-file (stream "/tmp/graph-tmp.dot"
                             :direction :output
                             :if-exists :supersede)
       (princ dot-text stream))
-    #+sbcl
-    (sb-ext:run-program "/usr/bin/dot"
-                        '("-Ksfdp"
-                          "-Tpng"
-                          "/tmp/graph-tmp.dot"
-                          "-o"
-                          "/tmp/graph-tmp.png"))
-    #+sbcl
-    (sb-ext:run-program "/usr/bin/feh"
-                        '("/tmp/graph-tmp.png")
-                        :wait nil))
+    (when (eq *interaction-mode* 'image)
+      #+sbcl
+      (sb-ext:run-program "/usr/bin/dot"
+                          '("-Ksfdp"
+                            "-Tpng"
+                            "/tmp/graph-tmp.dot"
+                            "-o"
+                            "/tmp/graph-tmp.png"))
+      #+sbcl
+      (sb-ext:run-program "/usr/bin/feh"
+                          '("/tmp/graph-tmp.png")
+                          :wait nil))
+    (when (eq *interaction-mode* 'xdot)
+      #+sbcl
+      (if (or (null *xdot-process*)
+              (not (sb-ext:process-p *xdot-process*))
+              (not (sb-ext:process-alive-p *xdot-process*)))
+          (setf *xdot-process*
+                ;; xdot doesn't support sfdp
+                (sb-ext:run-program "/usr/bin/xdot"
+                                    '("-f" "fdp"
+                                      "/tmp/graph-tmp.dot")
+                                    :wait nil)))))
   nil)
 
 (defmacro show-graph-with-shortest-path (graph from to)
   `(show-graph ,graph
                (shortest-path ,graph ,from ,to)))
+
+(defmacro show-graph-with-mst-kruskal (graph)
+  (let ((newgraph-sym (gensym))
+        (edges-sym (gensym)))
+    `(multiple-value-bind (,newgraph-sym ,edges-sym)
+         (mst-kruskal ,graph)
+       (declare (ignore ,newgraph-sym))
+       (show-graph ,graph ,edges-sym t))))
+               
        
 (defmethod shortest-path ((graph graph) from to)
   "Dijkstra's algorithm for shortest path between two
@@ -219,8 +258,119 @@ vertices in a graph."
       (values (first res-path)
               (second res-path)
               dists))))
-      
 
+(defmethod neighbors ((graph graph) vertex)
+  (unless (member vertex (vertices graph))
+    (error "~S~%is not a member of~%~S" vertex graph))
+  (multiple-value-bind (list exists)
+      (gethash vertex (neighborhood graph))
+    (declare (ignore exists))
+    list))
+
+(defmethod depth-discovery ((graph graph) from)
+  (unless (member from (vertices graph))
+    (error "~S~%is not a member of~%~S" from graph))
+  (let ((discovered nil)
+        (explored   nil)
+        (traversal  nil)
+        (last       nil))
+    (labels ((discovered-p (vertex)
+               (and (member vertex discovered) t))
+             (discover (vertex)
+               (push vertex discovered)
+               (loop for v in (neighbors graph vertex)
+                  for old-last = last
+                  unless (equal v last)
+                  do (push v traversal)
+                  unless (discovered-p v)
+                  do (progn
+                       (setf last vertex)
+                       (discover v))
+                  finally (progn
+                            (setf last old-last)
+                            (push vertex explored)))))
+      (push from traversal)
+      (discover from)
+      (list :discovered (reverse discovered)
+            :explored   (reverse explored)
+            :traversal  (reverse traversal)))))
+
+(defmethod breadth-discovery ((graph graph) from)
+  (unless (member from (vertices graph))
+    (error "~S~%is not a member of~%~S" from graph))
+  (let ((discovered nil)
+        (explored   nil)
+        (queue      nil))
+    (labels ((enqueue (vertex)
+               (setf queue (append queue (list vertex))))
+             (dequeue ()
+               (pop queue))
+             (discovered-p (vertex)
+               (and (member vertex discovered) t))
+             (discover (vertex)
+               (loop for v in (neighbors graph vertex)
+                  unless (discovered-p v)
+                  do (progn
+                       (push v discovered)
+                       (enqueue v))
+                  finally (push vertex explored))))
+      (push from discovered)
+      (enqueue from)
+      (loop until (null queue)
+         do (discover (dequeue))))
+    (list :discovered (reverse discovered)
+          :explored   (reverse explored))))
+
+(defmethod edges ((graph graph))
+  (loop for k being the hash-keys of (distances graph)
+     when (or (digraph-p graph)
+              (not (member (reverse k) edge-list :test #'equal)))
+     collect k into edge-list
+     finally (return edge-list)))
+
+(defmethod ordered-edges ((graph graph))
+  "Returns a list of edges for the current graph, ordered by height."
+  (let ((edge-list (edges graph)))
+    (stable-sort edge-list
+                 (lambda (edge1 edge2)
+                   (< (gethash edge1 (distances graph))
+                      (gethash edge2 (distances graph)))))))
+
+
+(defmethod mst-kruskal ((graph graph))
+  "Returns a graph and an edge list, built using Kruskal's minimum spanning
+tree algorithm."
+  (let ((edge-table (ordered-edges graph))
+        (forest (mapcar #'list (vertices graph)))
+        (selected-edges nil))
+    (labels ((find-in-forest (vertex forest)
+               (loop for tree in forest
+                  when (member vertex tree)
+                  return (values tree
+                                 (remove tree forest
+                                         :test #'equal))))
+             (connect-trees (edge)
+               (multiple-value-bind (tree1 prenew-forest)
+                   (find-in-forest (first edge) forest)
+                 (multiple-value-bind (tree2 new-forest-minus-trees)
+                     (find-in-forest (second edge) prenew-forest)
+                   (unless (null tree2)
+                     (setf forest
+                           (append new-forest-minus-trees
+                                   (list
+                                    (append edge tree1 tree2))))
+                     (push edge selected-edges))))))
+      (loop for edge in edge-table
+         do (connect-trees edge)
+         finally
+           (return (values (make-graph
+                            (vertices graph)
+                            (mapcar (lambda (unweighted-edge)
+                                      (append unweighted-edge
+                                              (list (gethash unweighted-edge
+                                                             (distances graph)))))
+                                    selected-edges))
+                           selected-edges))))))
 
 (defparameter *graph1*
   (make-graph '(a b c)
@@ -230,6 +380,7 @@ vertices in a graph."
 
 ;; (show-graph *graph1*)
 ;; (show-graph-with-shortest-path *graph1* 'a 'c)
+;; (show-graph-with-mst-kruskal *graph1*)
 
 (defparameter *graph2*
   (make-graph '(a b c d e f)
@@ -245,6 +396,7 @@ vertices in a graph."
 
 ;; (show-graph *graph2*)
 ;; (show-graph-with-shortest-path *graph2* 'a 'f)
+;; (show-graph-with-mst-kruskal *graph2*)
 
 (defparameter *graph3*
   (make-graph '(a b c d e)
@@ -261,6 +413,7 @@ vertices in a graph."
 
 ;; (show-graph *graph3*)
 ;; (show-graph-with-shortest-path *graph3* 'a 'e)
+;; (show-graph-with-mst-kruskal *graph3*)
 
 (defparameter *digraph1*
   (make-graph '(a b c d e f g)
@@ -295,7 +448,7 @@ vertices in a graph."
 
 ;; (show-graph *graph4*)
 ;; (show-graph-with-shortest-path *graph4* 1 7)
-
+;; (show-graph-with-mst-kruskal *graph4*)
 
 (defparameter *graph5*
   (make-graph '(a b c d e f g h i)
@@ -316,6 +469,7 @@ vertices in a graph."
 
 ;; (show-graph *graph5*)
 ;; (show-graph-with-shortest-path *graph5* 'a 'i)
+;; (show-graph-with-mst-kruskal *graph5*)
 
 
 (defparameter *graph6*
@@ -333,6 +487,7 @@ vertices in a graph."
 
 ;; (show-graph *graph6*)
 ;; (show-graph-with-shortest-path *graph6* 0 5)
+;; (show-graph-with-mst-kruskal *graph6*)
 
 
 (defparameter *graph7*
@@ -349,6 +504,7 @@ vertices in a graph."
 
 ;; (show-graph *graph7*)
 ;; (show-graph-with-shortest-path *graph7* 'a 'e)
+;; (show-graph-with-mst-kruskal *graph7*)
 
 
 (defparameter *digraph2*
@@ -367,6 +523,7 @@ vertices in a graph."
 
 ;; (show-graph *digraph2*)
 ;; (show-graph-with-shortest-path *digraph2* 'c 'a)
+;; (show-graph-with-mst-kruskal *digraph2*)
 
 
 (defparameter *digraph3*
@@ -389,6 +546,7 @@ vertices in a graph."
 
 ;; (show-graph *digraph3*)
 ;; (show-graph-with-shortest-path *digraph3* 'g 'f)
+;; (show-graph-with-mst-kruskal *digraph3*)
 
 (defparameter *digraph4*
   (make-graph '(start a b c d finish)
@@ -405,6 +563,7 @@ vertices in a graph."
 
 ;; (show-graph *digraph4*)
 ;; (show-graph-with-shortest-path *digraph4* 'start 'finish)
+;; (show-graph-with-mst-kruskal *digraph4*)
 
 
 (defparameter *digraph5*
@@ -424,6 +583,7 @@ vertices in a graph."
 
 ;; (show-graph *digraph5*)
 ;; (show-graph-with-shortest-path *digraph5* 'a 'c)
+;; (show-graph-with-mst-kruskal *digraph5*)
 
 
 (defparameter *digraph6*
@@ -441,6 +601,7 @@ vertices in a graph."
 
 ;; (show-graph *digraph6*)
 ;; (show-graph-with-shortest-path *digraph6* 's 'd)
+;; (show-graph-with-mst-kruskal *digraph6*)
 
 
 (defparameter *digraph7*
@@ -458,3 +619,4 @@ vertices in a graph."
 
 ;; (show-graph *digraph7*)
 ;; (show-graph-with-shortest-path *digraph7* 's 'd)
+;; (show-graph-with-mst-kruskal *digraph7*)

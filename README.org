@@ -158,7 +158,7 @@ variable =DIGRAPH-P= to =T=:
                 (h f 1))
               t))
 
-*my-digraph*
+,*my-digraph*
 #+end_src
 
 #+RESULTS[4bc167105a3adbb770b987dcedc06e2d1c4df944]:
@@ -206,6 +206,51 @@ others, consider using =MULTIPLE-VALUE-BIND= or a similar form.
 
 #+RESULTS[53a6588da811f6d07a1ad5505d17dc8589feaa8e]:
 | A | D | G | H | F | C |
+
+** Minimum spanning tree (Kruskal's Algorithm)
+
+To generate the minimum spanning tree for a graph, used
+
+#+begin_src lisp :eval no
+(mst-kruskal graph)
+#+end_src
+
+where =GRAPH= is any given graph object.
+
+This function returns /two values/: one is a new graph object, which
+describes the tree itself (trees are a special graph case). The other
+value is a list of nonrepeating vertices, useful for drawing the MST
+path later.
+
+Below we show the full output of the MST for our previously defined
+graph.
+
+#+begin_src lisp :exports both :cache yes
+(mst-kruskal *my-digraph*)
+#+end_src
+
+#+RESULTS[e79a5a135823a93c8bade5b5e55886c882e15116]:
+#+begin_example
+#<graph G = (V, E) where
+    V = (A B C D E F G H)
+    E =
+      (G H) [dist=2]
+      (E F) [dist=2]
+      (B E) [dist=2]
+      (A D) [dist=2]
+      (H F) [dist=1]
+      (F C) [dist=1]
+      (D G) [dist=1]
+      (H G) [dist=2]
+      (F E) [dist=2]
+      (E B) [dist=2]
+      (D A) [dist=2]
+      (F H) [dist=1]
+      (C F) [dist=1]
+      (G D) [dist=1]>
+
+((G H) (E F) (B E) (A D) (H F) (F C) (D G))
+#+end_example
 
 ** Emitting Graphviz code
 
@@ -257,12 +302,17 @@ To visually highlight a certain path on the graph, one can use the
 same method
 
 #+begin_src lisp :eval no
-(emit-dot graph &optional highlight-path)
+(emit-dot graph &optional highlight-path highlighting-edges)
 #+end_src
 
 where the optional argument =HIGHLIGHT-PATH= must be a flat list of
 symbols, each symbol representing a vertex, in such a way that the
 list of symbols describes the path to be "walked" on the graph.
+
+If you wish to print a path of non-consecutive edges, then you must
+give =HIGHLIGHT-PATH= a list of pairs, where each pair is a list of two
+vertices, and =HIGHLIGHTING-EDGES= must be set to true. This can be used
+for drawing minimum spanning trees, for example.
 
 It is very trivial to mix this method with a shortest path
 calculation, like this:
@@ -288,6 +338,41 @@ C -- D[label="7"];
 C -- F[label="4"];
 C -- I[label="2"];
 D -- E[label="9"];
+D -- F[label="14"];
+E -- F[label="10"];
+F -- G[label="2", color=red, penwidth=2];
+G -- H[label="1", color=red, penwidth=2];
+G -- I[label="6"];
+H -- I[label="7"];
+}
+#+end_example
+
+For a minimum spanning tree, you need to collect the second return
+value:
+
+#+begin_src lisp :exports both :cache yes :results output
+(emit-dot *my-graph*
+          (multiple-value-bind (graph list)
+              (mst-kruskal *my-graph*)
+            (declare (ignore graph))
+            list)
+          t)
+#+end_src
+
+#+RESULTS[5d725a62003b38488a1c41fa9e4a04ac74f2a62b]:
+#+begin_example
+graph G {
+bgcolor="#00000000";
+graph[nodesep="0.2", ranksep="0.0", splines="curved", dpi=150, fixedsize=true];
+node[shape=circle, fillcolor=white, style=filled];
+A -- B[label="4", color=red, penwidth=2];
+A -- H[label="8", color=red, penwidth=2];
+B -- C[label="8"];
+B -- H[label="11"];
+C -- D[label="7", color=red, penwidth=2];
+C -- F[label="4", color=red, penwidth=2];
+C -- I[label="2", color=red, penwidth=2];
+D -- E[label="9", color=red, penwidth=2];
 D -- F[label="14"];
 E -- F[label="10"];
 F -- G[label="2", color=red, penwidth=2];
@@ -350,6 +435,28 @@ Therefore the code
 shows on screen the image
 
 [[file:img/my-digraph-highlit.png]]
+
+*** Automatically generating the minimum spanning tree when displaying
+
+The utility macro
+
+#+begin_src :eval no
+(show-graph-with-mst-kruskal graph)
+#+end_src
+
+also works just like =SHOW-GRAPH=, but it automatically generates the
+minimum spanning tree using the Kruskal method for a specific graph,
+and then shows it.
+
+Therefore the code
+
+#+begin_src lisp :eval no
+(show-graph-with-mst-kruskal *my-digraph*)
+#+end_src
+
+shows on screen the image
+
+[[file:img/my-digraph-mst.png]]
 
 * License
 
