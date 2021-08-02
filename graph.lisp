@@ -620,3 +620,32 @@ tree algorithm."
 ;; (show-graph *digraph7*)
 ;; (show-graph-with-shortest-path *digraph7* 's 'd)
 ;; (show-graph-with-mst-kruskal *digraph7*)
+
+
+(defparameter *teste*
+  (make-graph '(a b c d e f g h)
+              '((f g 1)
+                (b c 2)
+                (c e 2)
+                (a c 3)
+                (d f 3)
+                (c d 4)
+                (a d 5)
+                (b a 6)
+                (e d 6)
+                (g h 6)
+                (d g 7)
+                (a h 8)
+                (b h 8))))
+
+(defparameter *teste2*
+  (make-graph '(a b c d e f)
+              '((a b 1)
+                (a d 4)
+                (b c 5)
+                (b d 7)
+                (b e 3)
+                (b f 6)
+                (c f 8)
+                (d e 8)
+                (e f 2))))
